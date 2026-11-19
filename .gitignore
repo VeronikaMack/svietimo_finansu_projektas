@@ -1,0 +1,22 @@
+# Local source datasets and preserved originals
+/data/local/
+/archive/
+
+# Include only the three dashboard notebooks
+/notebooks/*
+!/notebooks/overview.ipynb
+!/notebooks/municipality_explorer.ipynb
+!/notebooks/school_explorer.ipynb
+
+# Credentials and local settings
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store
