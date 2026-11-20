@@ -92,7 +92,7 @@ SPENDING_LABELS = {
     "Vidaus finansinio turto padidėjimo išlaidos (investavimo į rezidentus išlaidos)": "Domestic financial asset purchases and investments",
     "Vidurinis ugdymas": "Upper secondary education",
     "Viešinimo išlaidos": "Publicity and communications",
-    "Švietimo išlaidos": "Education expenditure",
+    "Švietimo išlaidos": "Total education expenditure",
     "Švietimo pagalba": "Educational support",
     "Ūkinio inventoriaus įsigijimo išlaidos": "Operational equipment and supplies",
 }

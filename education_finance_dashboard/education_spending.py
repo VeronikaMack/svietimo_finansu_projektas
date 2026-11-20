@@ -178,7 +178,7 @@ def make_spending_chart(education):
         go.Sankey(
             node=dict(
                 align="left",
-                label=["Education expenditure", *area_labels, *detail_labels],
+                label=["", *area_labels, *detail_labels],
                 color=[
                     "#334155",
                     "#94a3b8",
@@ -190,21 +190,40 @@ def make_spending_chart(education):
                 ],
                 pad=24,
                 thickness=16,
-                hovertemplate="%{label}<br>€%{value:,.2f}<extra></extra>",
+                hovertemplate=[
+                    "Total education expenditure<br>€%{value:,.2f}<extra></extra>",
+                    *(["%{label}<br>€%{value:,.2f}<extra></extra>"] * (len(area_labels) + len(detail_labels))),
+                ],
             ),
             link=dict(
                 source=[0] * len(by_area) + [general_node] * len(by_category),
                 target=area_nodes + detail_nodes,
                 value=by_area.tolist() + by_category.tolist(),
                 color=area_link_colors + ["rgba(37, 99, 235, 0.34)"] * len(by_category),
-                hovertemplate=(
-                    "%{source.label} → %{target.label}<br>"
-                    "€%{value:,.2f}<extra></extra>"
-                ),
+                hovertemplate=[
+                    *(["Total education expenditure → %{target.label}<br>€%{value:,.2f}<extra></extra>"] * len(by_area)),
+                    *(["%{source.label} → %{target.label}<br>€%{value:,.2f}<extra></extra>"] * len(by_category)),
+                ],
             ),
         )
     )
-    chart.update_layout(height=440, margin=dict(l=12, r=12, t=12, b=12), font_size=14)
+    chart.update_layout(
+        height=440,
+        margin=dict(l=65, r=12, t=12, b=12),
+        font_size=14,
+        annotations=[dict(
+            text="<b>Total education expenditure</b>",
+            textangle=-90,
+            x=-0.025,
+            y=0.5,
+            xref="paper",
+            yref="paper",
+            xanchor="right",
+            yanchor="middle",
+            showarrow=False,
+            font=dict(size=14, color="#334155"),
+        )],
+    )
     return chart
 
 

@@ -8,6 +8,7 @@ import json
 import numpy as np
 
 from education_spending import show_education_spending
+from school_type_funding import show_school_type_funding
 from municipality_funding import (
     load_funding,
     municipality_funding_records,
@@ -340,12 +341,30 @@ st.divider()
 # FUNDING BY MUNICIPALITY
 # --------------------------------------------------
 
+st.header("School Funding by School Type")
+st.markdown("""
+The previous chart showed where school funding came from. **How does funding
+differ between school types across Lithuania?**
+
+The bars compare average funding per school or funding per student within each
+type. The national benchmark shows the overall figure across all school types,
+placing each group's amount above or below the national average. Differences
+can reflect school sizes, educational stages and support needs.
+""")
+type_include_special = st.toggle(
+    "Include special schools", value=True,
+    key="overview_type_include_special", persist_state="session",
+)
+show_school_type_funding(
+    funding, year, type_include_special, key="overview_school_types"
+)
+st.divider()
+
 st.header("School Funding by Municipality")
 
 st.markdown(f"""
-The previous chart showed where school funding came from. But the national
-total leaves another question: **how is that funding distributed across
-municipalities?**
+National school-type averages reveal differences between groups. **How does
+the picture vary across municipalities?**
 
 The map shows the funding reported by schools in each municipality in
 **{year}**. Total funding highlights where the largest amounts are concentrated.

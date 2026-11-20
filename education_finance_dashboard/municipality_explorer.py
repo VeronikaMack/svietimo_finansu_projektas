@@ -15,6 +15,7 @@ from municipality_funding import (
     summarize_school_funding,
 )
 from school_funding_charts import show_school_funding_charts
+from school_type_funding import show_school_type_funding
 
 FUNDING_SOURCE_LABELS = {
     "Iš valstybės biudžeto": "State budget",
@@ -221,65 +222,23 @@ national funding-source picture.
             )
             .sort_values("average_funding", ascending=False, kind="stable")
         )
-        school_counts = types["school_count"].map(
-            lambda count: f"{count:,} {'school' if count == 1 else 'schools'}"
-        )
-        types["type_label"] = types["mokyklos_tipas"] + " · " + school_counts
-
-        st.subheader("Average Funding per School by School Type")
+        st.subheader("Funding by School Type")
         st.markdown("""
 The previous chart showed where the municipality's school funding came from.
-**How does funding differ between school types?**
+**How does funding differ between school types, and how do their figures
+compare with the municipality and Lithuania overall?**
 
-Each bar shows the **average recorded funding per school** within that type.
-The labels also show how many schools the average represents.
-
-This highlights differences in the funding of an individual school, on average.
-School types can serve different numbers of students and educational stages,
-so a higher average does not necessarily mean more funding per student.
+Each bar shows average funding per school or funding per student within that
+type. The two benchmark lines show the municipality-wide and national averages
+across all school types. Both follow the selected year and special-school
+setting. The toggle here is linked to the one at the top of the page.
+A higher figure can reflect differences in school size,
+educational stages and support needs.
         """)
-        if (types["average_funding"] == 0).all():
-            st.info(
-                "Average recorded funding per school is €0 for each school type "
-                "in this selection."
-            )
-            st.caption(" | ".join(types["type_label"]))
-        else:
-            type_chart = px.bar(
-                types,
-                x="average_funding",
-                y="type_label",
-                orientation="h",
-                text=[f"€{amount:,.0f}" for amount in types["average_funding"]],
-                labels={
-                    "average_funding": "Average funding per school (€)",
-                    "type_label": "",
-                },
-                color_discrete_sequence=["#2563eb"],
-            )
-            type_chart.update_traces(
-                textposition="outside",
-                cliponaxis=False,
-                hovertemplate=(
-                    "%{y}<br>Average funding per school: €%{x:,.2f}<extra></extra>"
-                ),
-            )
-            type_chart.update_yaxes(
-                categoryorder="array",
-                categoryarray=types["type_label"].tolist(),
-                autorange="reversed",
-                automargin=True,
-            )
-            type_chart.update_xaxes(
-                tickprefix="€", tickformat="", exponentformat="B"
-            )
-            type_chart.update_layout(
-                height=350, margin=dict(l=8, r=100, t=8, b=40)
-            )
-            st.plotly_chart(type_chart, width="stretch")
-        st.caption(
-            "Total recorded funding divided by the number of schools within each type. "
-            "Source table `finansavimas_mokykla_metai` · Field `mokyklos_tipas`"
+        show_school_type_funding(
+            funding, year, include_special, key="municipality_school_types",
+            municipality_code=municipality_code,
+            special_scope_key="explorer_include_special",
         )
 
         st.subheader("School funding comparison")
