@@ -55,35 +55,84 @@ def load_school_expense_history(school_code):
         ).df()
 
 
+@st.cache_data
+def load_school_income_history(school_code):
+    with duckdb.connect(DATABASE_FILE, read_only=True) as conn:
+        return conn.execute(
+            """
+            SELECT
+                YEAR(ataskaitinis_periodas) AS metai,
+                SUM(CAST(suma AS DOUBLE)) AS income
+            FROM mokyklu_veiklos_rezultatai
+            WHERE mokyklos_kodas = ?
+              AND saskaita_lygis_1 = 'Pajamos'
+              AND ataskaitinis_periodas IS NOT NULL
+            GROUP BY YEAR(ataskaitinis_periodas)
+            ORDER BY metai
+            """,
+            [school_code],
+        ).df()
+
+
 def show_school_financial_history(school_code, school_funding):
     annual_funding = (
         school_funding.assign(suma=school_funding["suma"].astype("float64"))
         .groupby("metai")["suma"]
         .sum(min_count=1)
-        .rename("Funding received")
+        .rename("Funding income")
     )
     annual_expenses = (
         load_school_expense_history(school_code)
         .set_index("metai")["expenditure"]
         .astype("float64")
-        .rename("Total expenditure")
+        .rename("Total expenses")
     )
-    history = pd.concat([annual_funding, annual_expenses], axis=1).sort_index()
+    annual_income = (
+        load_school_income_history(school_code)
+        .set_index("metai")["income"]
+        .astype("float64")
+        .rename("Total income")
+    )
+    history = pd.concat(
+        [annual_income, annual_funding, annual_expenses], axis=1
+    ).sort_index()
     history = (
         history.reindex(range(int(history.index.min()), int(history.index.max()) + 1))
         .rename_axis("Year")
         .reset_index()
     )
 
-    st.subheader("Funding received and expenditure over time")
+    st.subheader("Income and expenses over time")
+    st.markdown("""
+A single year provides a snapshot. **How have the school's income and
+expenses changed over time, and has income kept pace with costs?**
+
+The chart compares total expenses with either total income or funding income.
+Total income includes funding and other reported income; funding income shows
+only the funding component. The selector changes the income line while keeping
+total expenses visible.
+    """)
+    income_measure = st.radio(
+        "Compare total expenses with",
+        ["Total income", "Funding income"],
+        horizontal=True,
+        key="school_history_income_measure",
+        persist_state="session",
+    )
+    if income_measure == "Funding income":
+        st.caption(
+            "Funding income is only part of total income, so the gap between "
+            "these lines is not the school's surplus or deficit."
+        )
     chart = px.line(
         history,
         x="Year",
-        y=["Funding received", "Total expenditure"],
+        y=[income_measure, "Total expenses"],
         markers=True,
         color_discrete_map={
-            "Funding received": "#2563eb",
-            "Total expenditure": "#f97316",
+            "Total income": "#2563eb",
+            "Funding income": "#2563eb",
+            "Total expenses": "#f97316",
         },
         labels={"value": "Amount (€)", "variable": ""},
     )
@@ -97,7 +146,7 @@ def show_school_financial_history(school_code, school_funding):
     st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
     st.caption(
         "All available calendar years for this school · Nominal euros · "
-        "Gaps indicate missing figures. Funding covers recorded funding income."
+        "Gaps indicate missing figures. Amounts are not adjusted for inflation."
     )
 
 
@@ -166,8 +215,47 @@ def expense_bar_chart(
     return figure
 
 
+EXPENSE_LABELS = {
+    "Pagrindinės veiklos sąnaudos": "Main operating expenses",
+    "Kitos veiklos sąnaudos": "Other activity expenses",
+    "Finansinės ir investicinės veiklos sąnaudos": "Financial and investment expenses",
+    "Baudų ir delspinigių sąnaudos": "Fines and late-payment penalties",
+    "Kitos finansinės ir investicinės veiklos sąnaudos": "Other financial and investment expenses",
+    "Nuostolis dėl valiutos kurso pasikeitimo": "Foreign exchange losses",
+    "Palūkanų sąnaudos": "Interest expenses",
+    "Darbo užmokesčio ir socialinio draudimo sąnaudos": "Wages and social insurance",
+    "Darbo užmokesčio ir socialinio draudimo": "Wages and social insurance",
+    "Ilgalaikio turto nusidėvėjimo ir amortizacijos sąnaudos": "Depreciation and amortisation",
+    "Nusidėvėjimo ir amortizacijos": "Depreciation and amortisation",
+    "Kitos veiklos mokesčių sąnaudos": "Taxes on other activities",
+    "Nuostoliai iš ilgalaikio turto perleidimo": "Losses on disposal of fixed assets",
+    "Paslaugų sąnaudos": "Services",
+    "Sunaudotų ir parduotų atsargų savikaina": "Cost of supplies used and sold",
+    "Finansavimo": "Financing expenses",
+    "Kitos": "Other expenses",
+    "Kitų paslaugų": "Other services",
+    "Komandiruočių": "Business travel",
+    "Komunalinių paslaugų ir ryšių": "Utilities and communications",
+    "Kvalifikacijos kėlimo": "Professional development",
+    "Nuomos": "Rent",
+    "Nuvertėjimo ir nurašytų sumų": "Impairment and write-offs",
+    "Paprastojo remonto ir eksploatavimo": "Routine repairs and maintenance",
+    "Socialinių išmokų": "Social benefits",
+    "Transporto": "Transport",
+}
+
+
 def show_school_expense_breakdown(expenses, school_code, year):
     st.subheader("Reported expenses by category")
+    st.markdown(f"""
+The trend shows how expenses have changed over time. **What makes up those
+costs in {year}?**
+
+The bars compare the school's reported expense categories, showing which
+account for the largest amounts. Expanding a category reveals its individual
+costs, such as wages, utilities and maintenance. This connects the overall
+expense total to the activities and resources behind it.
+    """)
     expense_lines = expenses.dropna(subset=["suma"]).assign(
         expense_eur=lambda lines: -lines["suma"]
     )
@@ -178,15 +266,12 @@ def show_school_expense_breakdown(expenses, school_code, year):
     broad = expense_lines.groupby(
         ["kodas_lygis_2", "saskaita_lygis_2"], as_index=False
     )["expense_eur"].sum()
-    category_labels = broad.set_index("kodas_lygis_2")["saskaita_lygis_2"].to_dict()
-    chart_key = f"expense_chart_{school_code}_{year}"
+    broad["label"] = broad["saskaita_lygis_2"].replace(EXPENSE_LABELS)
+    category_labels = broad.set_index("kodas_lygis_2")["label"].to_dict()
     category_key = f"expense_category_{school_code}_{year}"
 
-    def select_category_from_chart():
-        points = st.session_state[chart_key]["selection"]["points"]
-        data = points[0].get("customdata") if len(points) == 1 else None
-        if data and data[0] in category_labels:
-            st.session_state[category_key] = data[0]
+    def return_to_overview():
+        st.session_state[category_key] = None
 
     display_mode = st.radio(
         "Show expenses as",
@@ -194,66 +279,79 @@ def show_school_expense_breakdown(expenses, school_code, year):
         horizontal=True,
         key="school_expense_display_mode",
         persist_state="session",
-        help="The charts use euros for breakdowns with a negative amount or a zero total.",
+        help="Euros are used when a breakdown contains negative amounts or has a zero total.",
     )
-    st.caption(
-        "Hover for the exact amount. Click a bar or use the picker to see the details."
+    st.button(
+        "← Back to all expenses",
+        key=f"expense_back_{school_code}_{year}",
+        disabled=st.session_state.get(category_key) is None,
+        on_click=return_to_overview,
     )
-    figure = expense_bar_chart(
-        broad,
-        "saskaita_lygis_2",
-        "Share of total school expenses",
-        display_mode,
-        category_code="kodas_lygis_2",
-    )
-    figure.update_layout(clickmode="event+select")
-    figure.update_traces(unselected=dict(marker=dict(opacity=1)))
-    st.plotly_chart(
-        figure,
-        width="stretch",
-        key=chart_key,
-        on_select=select_category_from_chart,
-        selection_mode="points",
-        config={"displayModeBar": False},
-    )
-
     category = st.selectbox(
-        "Expense category to expand",
+        "Expense category",
         options=list(category_labels),
         format_func=category_labels.__getitem__,
         index=None,
+        placeholder="All expenses - select a category to expand",
         key=category_key,
     )
-    if category is not None:
+    chart_key = f"expense_chart_{school_code}_{year}_{category or 'overview'}"
+
+    def select_category_from_chart():
+        points = st.session_state[chart_key]["selection"]["points"]
+        data = points[0].get("customdata") if len(points) == 1 else None
+        if data and data[0] in category_labels:
+            st.session_state[category_key] = data[0]
+
+    if category is None:
+        st.markdown("**All expenses**")
+        st.caption("Clicking a bar expands that category in this chart. Hovering shows exact amounts.")
+        figure = expense_bar_chart(
+            broad, "label", "Share of total school expenses", display_mode,
+            category_code="kodas_lygis_2",
+        )
+        figure.update_layout(clickmode="event+select")
+        figure.update_traces(unselected=dict(marker=dict(opacity=1)))
+    else:
+        st.markdown(f"**All expenses / {category_labels[category]}**")
         detail = (
             expense_lines[expense_lines["kodas_lygis_2"] == category]
-            .groupby("saskaita_lygis_3", as_index=False)["expense_eur"]
+            .groupby("saskaita_lygis_3", as_index=False, dropna=False)["expense_eur"]
             .sum()
         )
-        st.markdown(f"**{category_labels[category]}**")
-        detail_chart = expense_bar_chart(
-            detail, "saskaita_lygis_3", "Share of this expense category", display_mode
+        detail["label"] = detail["saskaita_lygis_3"].replace(EXPENSE_LABELS).fillna("Unspecified expense")
+        figure = expense_bar_chart(
+            detail, "label", "Share of this expense category", display_mode
         )
-        detail_chart.update_layout(dragmode=False)
-        scroll_height = 360
-        scrollable = detail_chart.layout.height > scroll_height
-        if scrollable:
-            st.caption("Scroll inside the chart to see more expense types.")
-        detail_panel = st.container(
-            height=scroll_height if scrollable else "content",
-            border=False,
-            key=f"{category_key}_{category}_detail",
-        )
-        detail_panel.plotly_chart(
-            detail_chart,
-            width="stretch",
-            config={"displayModeBar": False, "scrollZoom": False},
-        )
+        figure.update_layout(dragmode=False)
+        st.caption("This is the most detailed expense level available. Percentages refer to the selected category.")
 
+    scrollable = figure.layout.height > 420
+    if scrollable:
+        st.caption("Scroll inside the chart to see all expense types.")
+    panel = st.container(height=420 if scrollable else "content", border=False)
+    panel.plotly_chart(
+        figure,
+        width="stretch",
+        key=chart_key,
+        on_select=select_category_from_chart if category is None else "ignore",
+        selection_mode="points",
+        config={"displayModeBar": False, "scrollZoom": False},
+    )
     st.caption("Source table `mokyklu_veiklos_rezultatai` · `Sąnaudos`")
 
 
 st.title("School Explorer")
+
+st.markdown("""
+The municipality comparison showed differences between schools. A closer look
+at one school raises the next question: **what does its funding support?**
+
+The figures below bring together the school's reported income and expenses.
+The trend shows how funding income and expenses have changed over time, while
+the expense breakdown shows which costs account for the largest amounts.
+Together, they put the school's position in the earlier comparisons into context.
+""")
 
 funding = load_funding()
 school_index = (
@@ -308,6 +406,13 @@ with year_column:
     )
 
 st.subheader("School income and expenses")
+st.markdown(f"""
+For **{year}**, how much income did the school report, and how much did it
+record in expenses? The figures below separate funding income from other
+reported income and show total expenses alongside them. This establishes the
+school's financial picture for the selected year before examining its costs
+in more detail.
+""")
 results = load_school_financial_results(school_code, int(year))
 if results.empty:
     st.info("No income or expense records were found for this school and year.")

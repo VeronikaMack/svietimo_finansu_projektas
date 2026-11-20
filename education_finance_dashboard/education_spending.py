@@ -1,8 +1,12 @@
 from pathlib import Path
+import math
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+from education_spending_sankey import show_spending_sankey
+from education_spending_labels import spending_label_english
 
 DATA_DIRECTORY = Path(__file__).resolve().parents[1] / "data"
 DATA_FILE = DATA_DIRECTORY / "public" / "education_expenditure_by_function_2024.csv"
@@ -26,15 +30,15 @@ AREA_ORDER = [
     "Kitos švietimo sritys",
 ]
 EXPENSE_TYPES = {
-    "2.1.": "Darbo užmokestis ir socialinis draudimas",
-    "2.2.": "Prekės ir paslaugos",
-    "3.1.": "Turto įsigijimas",
+    "2.1.": "Wages and social insurance",
+    "2.2.": "Goods and services",
+    "3.1.": "Asset purchases",
 }
 
 
 @st.cache_data
 def load_education_spending():
-    return pd.read_csv(DATA_FILE, usecols=[AREA, CATEGORY, EUROS])
+    return pd.read_csv(DATA_FILE, usecols=["kodas", AREA, CATEGORY, EUROS])
 
 
 @st.cache_data
@@ -47,8 +51,103 @@ def load_expense_breakdown():
         (data[FUNCTION_GROUP] == "09.")
         & data[FUNCTION_CODE].isin(["09.02.01.01", "09.02.02.01"])
     ]
-    expense_type = general[EXPENSE_CODE].map(EXPENSE_TYPES).fillna("Kitos išlaidos")
+    expense_type = general[EXPENSE_CODE].map(EXPENSE_TYPES).fillna("Other expenditure")
     return general.groupby(expense_type)["Vykdymas"].sum().sort_values()
+
+
+
+EXPENSE_LEVELS = [
+    ("Ek. kodas (lygis 2)", "Išlaidų grupės  (lygis 2)"),
+    ("Ek. kodas (lygis 3)", "Išlaidų pogrupiai (lygis 3)"),
+    ("Ek. kodas (lygis 4)", "Išlaidų straipsniai (lygis 4)"),
+    ("Ek. kodas (lygis 6)", "Detalūs išlaidų straipsniai (lygis 6)"),
+]
+
+
+@st.cache_data
+def load_expenditure_details():
+    columns = [FUNCTION_GROUP, FUNCTION_CODE, "Vykdymas"]
+    for code, label in EXPENSE_LEVELS:
+        columns.extend([code, label])
+    data = pd.read_csv(DETAILED_DATA_FILE, usecols=columns)
+    return data.loc[data[FUNCTION_GROUP] == "09."].copy()
+
+
+def build_spending_hierarchy(education, details):
+    nodes = {}
+
+    def add_node(label, amount, parent):
+        node_id = str(len(nodes))
+        nodes[node_id] = {
+            "id": node_id,
+            "label": " ".join(str(label).split()),
+            "amount": round(float(amount), 2),
+            "parent": parent,
+            "children": [],
+        }
+        if parent is not None:
+            nodes[parent]["children"].append(node_id)
+        return node_id
+
+    def add_expense_levels(records, parent, level):
+        if level == len(EXPENSE_LEVELS):
+            return
+        code_column, label_column = EXPENSE_LEVELS[level]
+        groups = list(records.groupby([code_column, label_column], dropna=False))
+        groups.sort(key=lambda group: group[1]["Vykdymas"].sum(), reverse=True)
+        for (code, label), rows in groups:
+            amount = round(float(rows["Vykdymas"].sum()), 2)
+            if amount == 0:
+                continue
+            if amount < 0:
+                raise ValueError(f"Negative expenditure for {spending_label_english(label)}: {amount}")
+            label = "Nedetalizuojama" if pd.isna(label) else " ".join(str(label).split())
+            # Skip a repeated label when the next level is the same single category.
+            if len(groups) == 1 and label == nodes[parent]["label"]:
+                add_expense_levels(rows, parent, level + 1)
+                continue
+            child = add_node(label, amount, parent)
+            add_expense_levels(rows, child, level + 1)
+
+    root = add_node("Švietimo išlaidos", education[EUROS].sum(), None)
+    area_nodes = []
+    function_nodes = {}
+    for area in AREA_ORDER:
+        categories = education.loc[education[AREA] == area].sort_values(
+            EUROS, ascending=False, kind="stable"
+        )
+        area_label = "Bendrasis ugdymas" if area == GENERAL else area
+        area_id = add_node(area_label, categories[EUROS].sum(), root)
+        area_nodes.append(area_id)
+        for _, category in categories.iterrows():
+            records = details.loc[details[FUNCTION_CODE] == category["kodas"]]
+            if not math.isclose(
+                records["Vykdymas"].sum(), category[EUROS], rel_tol=0, abs_tol=0.01
+            ):
+                raise ValueError(
+                    f"The total for {spending_label_english(category[CATEGORY])} does not match the expenditure dataset."
+                )
+            if len(categories) == 1:
+                function_id = area_id
+            else:
+                function_id = add_node(category[CATEGORY], category[EUROS], area_id)
+            function_nodes[category["kodas"]] = function_id
+            add_expense_levels(records, function_id, 0)
+
+    for node in nodes.values():
+        if node["children"]:
+            child_total = sum(nodes[child]["amount"] for child in node["children"])
+            if not math.isclose(child_total, node["amount"], rel_tol=0, abs_tol=0.01):
+                raise ValueError(f"Expenditure flows do not balance for {spending_label_english(node['label'])}.")
+
+    general_categories = education.loc[education[AREA] == GENERAL].sort_values(
+        EUROS, ascending=False, kind="stable"
+    )
+    overview_ids = [root, *area_nodes]
+    overview_ids.extend(function_nodes[code] for code in general_categories["kodas"])
+    for node in nodes.values():
+        node["label"] = spending_label_english(node["label"])
+    return nodes, overview_ids
 
 
 def make_spending_chart(education):
@@ -58,13 +157,13 @@ def make_spending_chart(education):
     general = education.loc[education[AREA] == GENERAL]
     by_category = general.groupby(CATEGORY)[EUROS].sum().sort_values(ascending=False)
 
-    display_names = {GENERAL: "Bendrasis ugdymas"}
+    display_names = {GENERAL: "General education"}
     area_labels = [
-        f"{display_names.get(name, name)} ({amount / total:.1%})"
+        f"{display_names.get(name, spending_label_english(name))} ({amount / total:.1%})"
         for name, amount in by_area.items()
     ]
     detail_labels = [
-        f"{name} ({amount / by_area[GENERAL]:.1%})"
+        f"{spending_label_english(name)} ({amount / by_area[GENERAL]:.1%})"
         for name, amount in by_category.items()
     ]
     area_nodes = list(range(1, len(by_area) + 1))
@@ -79,7 +178,7 @@ def make_spending_chart(education):
         go.Sankey(
             node=dict(
                 align="left",
-                label=["Švietimo finansavimas", *area_labels, *detail_labels],
+                label=["Education expenditure", *area_labels, *detail_labels],
                 color=[
                     "#334155",
                     "#94a3b8",
@@ -110,7 +209,7 @@ def make_spending_chart(education):
 
 
 def show_expense_breakdown():
-    with st.expander("Pagrindinio ir vidurinio ugdymo išlaidos pagal išlaidų rūšį"):
+    with st.expander("Basic and upper secondary expenditure by expense type"):
         expenses = load_expense_breakdown()
         chart = go.Figure(
             go.Bar(
@@ -127,48 +226,71 @@ def show_expense_breakdown():
         chart.update_layout(
             height=300,
             margin=dict(l=12, r=48, t=12, b=28),
-            xaxis_title="Išlaidos (€)",
+            xaxis_title="Expenditure (€)",
         )
         st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
 
 
 def show_education_spending():
-    st.header("Švietimo finansavimas 2024 m.")
+    st.header("Education expenditure in 2024")
     if not DATA_FILE.is_file():
         st.error(f"Missing data file: {DATA_FILE}")
         return
 
+    st.markdown("""
+The total education budget gives a sense of scale, but it does not show
+what the money pays for. This diagram traces actual public expenditure
+in 2024 across education areas, with wider flows representing larger amounts.
+
+It shows which areas account for the largest shares of spending and how
+their expenditure breaks down into wages, goods and services, asset purchases
+and other costs. This connects the overall total to the activities and
+resources it funds, providing context for the school funding comparisons below.
+    """)
     education = load_education_spending()
-    st.metric("Iš viso", f"€{education[EUROS].sum():,.2f}")
+    st.metric("Total expenditure", f"€{education[EUROS].sum():,.2f}")
     diagram, explanation = st.columns([3, 1], gap="medium")
     with diagram:
-        st.plotly_chart(
-            make_spending_chart(education),
-            width="stretch",
-            config={"displayModeBar": False},
-        )
+        chart = make_spending_chart(education)
+        if DETAILED_DATA_FILE.is_file():
+            nodes, overview_ids = build_spending_hierarchy(
+                education, load_expenditure_details()
+            )
+            chart.data[0].node.customdata = overview_ids
+            chart.data[0].link.customdata = [
+                overview_ids[target] for target in chart.data[0].link.target
+            ]
+            show_spending_sankey(chart, nodes)
+        else:
+            st.plotly_chart(
+                chart, width="stretch", config={"displayModeBar": False}
+            )
+            st.info("Detailed expenditure requires the quarterly expenditure dataset.")
         st.caption(
-            "Rodomos faktinės visų keturių 2024 m. ketvirčių biudžeto išlaidos. "
-            f"[Finansų ministerijos duomenys]({SOURCE_URL})"
+            "Actual budget expenditure across all four quarters of 2024. "
+            f"[Ministry of Finance data]({SOURCE_URL})"
         )
     with explanation:
         st.markdown("""
-**Ką rodo diagrama?**
+**What does the diagram show?**
 
-- **Ikimokyklinis ugdymas** – darželiai ir kitos ikimokyklinio ugdymo įstaigos.
-- **Priešmokyklinis ir pradinis** – pasirengimas mokyklai prieš 1 klasę ir
-  pradinis ugdymas (1–4 klasės). Šaltinyje šių dviejų pakopų išlaidos pateiktos kartu.
-- **Bendrasis ugdymas** apima 1–12 klases. Šioje šakoje rodomos pagrindinio
-  ugdymo (5–10 klasės) ir vidurinio ugdymo (11–12 klasės) išlaidos.
-- **Aukštasis mokslas** – kolegijos ir universitetai.
-- **Kitos švietimo sritys** – pavyzdžiui, profesinis mokymas, būreliai ir švietimo pagalba.
+- **Pre-school education** - kindergartens and other pre-school institutions.
+- **Pre-primary and primary education** - preparation before grade 1 and
+  primary education (grades 1-4). The source reports these stages together.
+- **General education** - this branch shows basic education (grades 5-10)
+  and upper secondary education (grades 11-12).
+- **Higher education** - colleges and universities.
+- **Other education areas** - including vocational schools, non-formal
+  education and educational support.
 
-Procentai prie švietimo sričių skaičiuojami nuo visų švietimo išlaidų. Dešinėje
-procentai rodo, kaip pagrindinio ir vidurinio ugdymo išlaidos pasidalija
-tarp šių dviejų pakopų. Užvedus pelę ant srauto matoma tiksli suma eurais.
+Selecting an education area or category makes it the main flow. Further
+levels show expense groups, subgroups and detailed items. The navigation
+above the diagram returns to earlier levels or the overall view.
+
+Percentages in the overall view refer to the corresponding parent flow.
+Expanded views show amounts in euros. Each breakdown adds up to the
+selected category's total.
         """)
-    if DETAILED_DATA_FILE.is_file():
-        show_expense_breakdown()
 
 
 if __name__ == "__main__":

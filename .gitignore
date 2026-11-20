@@ -1,6 +1,7 @@
 # Local source datasets and preserved originals
 /data/local/
 /archive/
+/reports/
 
 # Include only the three dashboard notebooks
 /notebooks/*

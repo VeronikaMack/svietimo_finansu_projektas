@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from special_school_comparison import show_special_school_explanation
+
 import streamlit as st
 import plotly.express as px
 import json
@@ -22,182 +24,63 @@ funding = load_funding()
 # HEADER AND INTRODUCTION
 # --------------------------------------------------
 
-st.title("Lithuanian Education Finances")
+st.title("Where does Lithuania's education money go?")
 
 st.markdown("""
-    Explore how Lithuania spent its education budget in 2024 and how school
-    funding has changed over time.
-    """)
+Education budgets fund the people, services, buildings, and equipment that
+schools need. Understanding these costs helps us interpret how funding is
+distributed and why amounts differ between schools.
+
+This dashboard explores three questions.
+
+1. What is education money spent on?
+2. How has recorded school funding changed over time?
+3. How does funding differ between municipalities and schools?
+
+**Data coverage**
+
+Education expenditure for 2024 and recorded school funding for 2015-2024.
+""")
 
 show_education_spending()
 st.divider()
 
-st.info(
-    "The school funding charts below cover schools recorded in the funding dataset, "
-    "including regular and special schools. "
-    "It does not include universities or other higher education institutions."
-)
+st.header("From the education budget to school funding")
 
-with st.expander("About this dashboard and its data"):
+st.markdown("""
+The expenditure breakdown shows the range of activities supported by the
+education budget. The focus now narrows to **general education (grades 1-12)**
+and the funding recorded for schools, including regular and special schools.
+
+The first question is **how school funding has changed over time**.
+This provides context before a closer look at a single year's funding sources
+and differences across municipalities.
+
+These figures come from a separate school funding dataset. They describe
+reported funding income rather than a breakdown of spending, so the totals are
+not directly comparable with the expenditure breakdown above.
+""")
+
+with st.expander("School groups and comparison notes"):
     st.markdown("""
-    ### What do the school funding charts cover?
+    **Regular and special schools**
 
-    This section explores funding allocated to Lithuanian schools
-    between 2015 and 2024.
+    Here, regular schools means the schools not flagged as special in the
+    dataset. It does not mean that these schools have no pupils with special
+    educational needs.
 
-    **Included:**
-    - Regular schools
-    - Special schools
-    - Schools represented in the funding dataset
-    - State, municipal, EU/international and other recorded funding sources
+    The special-school group includes special schools, children's socialisation
+    centres, and sanatorium or hospital schools, following the source classification.
+    These institutions serve different educational and support needs, so their
+    funding per student should be interpreted in that context. The later
+    comparisons include an option to exclude this group.
 
-    **Not included:**
-    - Universities and other higher education institutions
-    - Institutions not represented in the source dataset
+    **Reading the comparisons**
 
-    ### Important considerations
+    Amounts are in nominal euros, without adjustment for inflation. The schools
+    represented can change between years.
 
-    - Funding amounts are expressed in nominal euros
-      and are not adjusted for inflation.
-    - The number of schools represented may change between years.
-    - Funding refers to recorded financial allocations,
-      not necessarily actual expenditure.
-    - Student counts are not summed across funding-source rows,
-      because the same school may appear multiple times.
-
-    **Data source:** `finansavimas_mokykla_metai`
-    """)
-
-st.divider()
-
-# --------------------------------------------------
-# YEAR FILTER
-# --------------------------------------------------
-
-years = sorted(funding["metai"].dropna().unique().tolist())
-
-year = st.selectbox(
-    "Select reporting year",
-    options=years,
-    index=len(years) - 1,
-    key="overview_year",
-    persist_state="session",
-)
-
-selected_funding = funding[funding["metai"] == year]
-
-# --------------------------------------------------
-# OVERVIEW METRICS
-# --------------------------------------------------
-
-st.header("1. School Funding Overview")
-
-st.markdown(f"Key funding indicators for Lithuanian schools in **{year}**.")
-
-col1, col2, col3 = st.columns(3, gap="large")
-
-with col1:
-    st.metric(
-        "Total Funding",
-        f"€{selected_funding['suma'].astype('float64').sum():,.0f}",
-    )
-
-with col2:
-    st.metric(
-        "Schools",
-        f"{selected_funding['mokyklos_kodas'].nunique():,}",
-    )
-
-with col3:
-    st.metric(
-        "Municipalities",
-        f"{selected_funding['savivaldybes_kodas'].nunique():,}",
-    )
-
-st.caption(
-    f"Source: `finansavimas_mokykla_metai` | "
-    f"Year: {year} | "
-    "Scope: Schools included in the dataset, including special schools"
-)
-
-st.divider()
-
-# --------------------------------------------------
-# FUNDING BY SOURCE
-# --------------------------------------------------
-
-st.header("2. Funding by Source")
-
-st.markdown(f"""
-    This chart shows **where school funding came from in {year}**.
-
-    Each segment represents the proportion of total recorded funding
-    provided by a particular source.
-    """)
-
-funding_sources = (
-    selected_funding.assign(suma=selected_funding["suma"].astype("float64"))
-    .groupby("finansavimo_saltinis", as_index=False)["suma"]
-    .sum()
-)
-
-fig = px.pie(
-    funding_sources,
-    names="finansavimo_saltinis",
-    values="suma",
-    hole=0.55,
-    color_discrete_sequence=px.colors.qualitative.Set2,
-)
-
-fig.update_traces(
-    textinfo="percent",
-    hovertemplate=(
-        "%{label}<br>"
-        "Funding: €%{value:,.0f}<br>"
-        "Share: %{percent}"
-        "<extra></extra>"
-    ),
-)
-
-fig.update_layout(
-    height=460,
-    margin=dict(l=20, r=20, t=20, b=20),
-    legend_title_text="Funding source",
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-st.caption(
-    f"Source: `finansavimas_mokykla_metai` | "
-    f"Year: {year} | "
-    "Measure: Total funding by `finansavimo_saltinis`"
-)
-
-with st.expander("How to interpret this chart"):
-    st.markdown("""
-    **What does it show?**
-
-    The percentage of recorded school funding provided by
-    each funding source in the selected year.
-
-    **Included:** All recorded funding sources for schools
-    represented in the dataset, including special schools.
-
-    **Excluded:** Universities, other higher education
-    institutions, and institutions outside this dataset.
-
-    **Calculation:**
-
-    Funding amounts (`suma`) are summed separately for each
-    funding source (`finansavimo_saltinis`).
-
-    Each source's percentage is calculated relative to the
-    total recorded funding for the selected year.
-
-    **Important:** This chart shows the origin of funding,
-    not how schools spent the money.
-
-    **Source table:** `finansavimas_mokykla_metai`
+    Source table: `finansavimas_mokykla_metai`.
     """)
 
 st.divider()
@@ -206,14 +89,20 @@ st.divider()
 # FUNDING OVER TIME
 # --------------------------------------------------
 
-st.header("3. School Funding Over Time")
+st.header("School Funding Over Time")
 
 st.markdown("""
-This chart shows **how total recorded school funding has changed
-between 2015 and 2024**.
+The expenditure breakdown provides a snapshot of 2024. For schools,
+a longer view helps put that snapshot in context: **how has recorded school
+funding changed over time?**
 
-Unlike the charts above, it displays all available years so that
-you can compare funding over time.
+The line below shows total reported funding income for general education
+schools in each year from **2015 to 2024**. Each point combines all recorded
+funding sources for that year, showing the scale and pace of change.
+
+These are the euro amounts reported in each year, without adjustment for
+rising prices. A higher total therefore does not necessarily mean that schools
+could afford proportionately more staff, equipment or services.
 """)
 
 funding_by_year = (
@@ -260,7 +149,7 @@ st.plotly_chart(fig_trend, use_container_width=True)
 st.caption(
     "Source: `finansavimas_mokykla_metai` | "
     f"Period: {int(funding_by_year['metai'].min())}"
-    f"–{int(funding_by_year['metai'].max())} | "
+    f"-{int(funding_by_year['metai'].max())} | "
     "Measure: Annual SUM(suma)"
 )
 
@@ -300,10 +189,150 @@ with st.expander("How to interpret this chart"):
 
 st.divider()
 
-st.caption(
-    "Lithuanian Education Finances | "
-    "School funding data from `finansavimas_mokykla_metai`"
+# --------------------------------------------------
+# YEAR FILTER
+# --------------------------------------------------
+
+years = sorted(funding["metai"].dropna().unique().tolist())
+
+year = st.selectbox(
+    "Select reporting year",
+    options=years,
+    index=len(years) - 1,
+    key="overview_year",
+    persist_state="session",
 )
+
+selected_funding = funding[funding["metai"] == year]
+
+# --------------------------------------------------
+# OVERVIEW METRICS
+# --------------------------------------------------
+
+st.header("School Funding Overview")
+
+st.markdown(f"""
+The trend shows how the overall total has changed. A closer look at **{year}**
+now shows the funding recorded that year and the number of schools and
+municipalities represented. The reporting year selector above updates this
+overview and the single-year comparisons that follow.
+""")
+
+col1, col2, col3 = st.columns(3, gap="large")
+
+with col1:
+    st.metric(
+        "Total Funding",
+        f"€{selected_funding['suma'].astype('float64').sum():,.0f}",
+    )
+
+with col2:
+    st.metric(
+        "Schools",
+        f"{selected_funding['mokyklos_kodas'].nunique():,}",
+    )
+
+with col3:
+    st.metric(
+        "Municipalities",
+        f"{selected_funding['savivaldybes_kodas'].nunique():,}",
+    )
+
+st.caption(
+    f"Source: `finansavimas_mokykla_metai` | "
+    f"Year: {year} | "
+    "Scope: Schools included in the dataset, including special schools"
+)
+
+st.divider()
+
+# --------------------------------------------------
+# FUNDING BY SOURCE
+# --------------------------------------------------
+
+st.header("Funding by Source")
+
+st.markdown(f"""
+The overview above puts total recorded school funding in **{year}** at
+**€{selected_funding['suma'].astype('float64').sum():,.0f}**. Where did that funding come from?
+
+The next chart breaks this total down by source - state budgets, municipal
+budgets, EU and international funds, and other sources. The bars show how much
+each contributed, revealing which sources schools relied on most that year.
+""")
+
+funding_sources = (
+    selected_funding.assign(suma=selected_funding["suma"].astype("float64"))
+    .groupby("finansavimo_saltinis", as_index=False)["suma"]
+    .sum()
+    .sort_values("suma", ascending=False, kind="stable")
+)
+
+fig = px.bar(
+    funding_sources,
+    x="suma",
+    y="finansavimo_saltinis",
+    orientation="h",
+    text=[f"€{amount:,.0f}" for amount in funding_sources["suma"]],
+    labels={
+        "suma": "Recorded funding (€)",
+        "finansavimo_saltinis": "Funding source",
+    },
+    color_discrete_sequence=["#2563eb"],
+)
+
+fig.update_traces(
+    textposition="outside",
+    cliponaxis=False,
+    hovertemplate="%{y}<br>Funding: €%{x:,.2f}<extra></extra>",
+)
+
+fig.update_layout(
+    height=350,
+    margin=dict(l=20, r=120, t=20, b=40),
+)
+fig.update_xaxes(tickprefix="€", tickformat="", exponentformat="B")
+fig.update_yaxes(
+    categoryorder="array",
+    categoryarray=funding_sources["finansavimo_saltinis"].tolist(),
+    autorange="reversed",
+    automargin=True,
+    title=None,
+)
+
+st.plotly_chart(fig, width="stretch")
+
+st.caption(
+    f"Source: `finansavimas_mokykla_metai` | "
+    f"Year: {year} | "
+    "Measure: Total funding by `finansavimo_saltinis`"
+)
+
+with st.expander("How to interpret this chart"):
+    st.markdown("""
+    **What does it show?**
+
+    The total funding income reported by schools for each funding source
+    in the selected year, ordered from largest to smallest.
+
+    **Included:** All recorded funding sources for schools
+    represented in the dataset, including special schools.
+
+    **Excluded:** Universities, other higher education
+    institutions, and institutions outside this dataset.
+
+    **Calculation:**
+
+    Funding amounts (`suma`) are summed separately for each
+    funding source (`finansavimo_saltinis`).
+
+    Bar labels show funding amounts rounded to whole euros.
+
+    **Important:** This chart shows the origin of funding,
+    not how schools spent the money.
+
+    **Source table:** `finansavimas_mokykla_metai`
+    """)
 
 st.divider()
 
@@ -311,16 +340,20 @@ st.divider()
 # FUNDING BY MUNICIPALITY
 # --------------------------------------------------
 
-st.divider()
-st.header("4. School Funding by Municipality")
+st.header("School Funding by Municipality")
 
-st.markdown("""
-Explore how recorded school funding is distributed across
-Lithuania's 60 municipalities.
+st.markdown(f"""
+The previous chart showed where school funding came from. But the national
+total leaves another question: **how is that funding distributed across
+municipalities?**
 
-Choose whether to compare **total funding** or **funding per student**.
-The map updates automatically when you change the reporting year
-at the top of the dashboard.
+The map shows the funding reported by schools in each municipality in
+**{year}**. Total funding highlights where the largest amounts are concentrated.
+Larger totals can also reflect larger student populations, so **does the
+picture change when funding is compared per student?**
+
+The metric selector switches between these two views. Both follow the selected
+reporting year.
 """)
 
 # --------------------------------------------------
@@ -337,10 +370,12 @@ metric = st.radio(
 include_special = st.toggle(
     "Include special schools",
     value=True,
-    help="Turn off to exclude schools classified as special.",
+    help="Exclude schools flagged as special to compare the remaining schools. "
+    "See the comparison below for funding per student.",
     key="overview_include_special",
     persist_state="session",
 )
+show_special_school_explanation(funding, year)
 # --------------------------------------------------
 # LOAD MUNICIPALITY BOUNDARIES
 # --------------------------------------------------
@@ -455,7 +490,10 @@ fig_map.update_layout(
     clickmode="event+select",
 )
 
-st.caption("Click a municipality on the map or choose one below.")
+st.caption(
+    "Clicking a municipality on the map opens its detailed overview. "
+    "The dropdown below provides another way to select a municipality and open its overview."
+)
 st.plotly_chart(
     fig_map,
     use_container_width=True,
@@ -505,85 +543,17 @@ if metric == "Funding per student" and missing_municipalities > 0:
 # --------------------------------------------------
 # METHODOLOGY AND EXPLANATIONS
 # --------------------------------------------------
-with st.expander("About this map — data and methodology"):
+with st.expander("About this map"):
     st.markdown("""
-    ### What does this map show?
+    - **Total funding** adds up recorded school funding in each municipality.
+    - **Funding per student** divides that total by the student count for the
+      same schools. The special-school filter updates both figures.
+    - **Darker colours mean higher values.** Total funding uses a logarithmic
+      scale; funding per student uses a linear scale.
 
-    The geographical distribution of recorded school funding
-    across Lithuania's municipalities for the selected year.
+    Differences can reflect school sizes, school types and support needs.
+    Higher funding per student does not by itself indicate better outcomes
+    or inefficient spending.
 
-    You can switch between two funding metrics and choose
-    whether special schools are included.
-
-    ### Funding metrics
-
-    **Total funding**
-
-    The sum of all recorded funding amounts for schools
-    in each municipality.
-
-    **Funding per student**
-
-    Total recorded school funding divided by the number
-    of students in those schools. Each school's student
-    count is included only once, even if it has multiple
-    funding-source records.
-
-    ### Special-school filter
-
-    **Include special schools — ON (default)**
-
-    Both regular and special schools are included
-    in the calculations.
-
-    **Include special schools — OFF**
-
-    Schools classified as special are excluded.
-    Both total funding and student counts are recalculated
-    using only the remaining schools.
-
-    This allows comparisons without the influence of
-    schools classified as special.
-
-    ### What is included?
-
-    - Schools represented in the funding dataset
-    - Regular schools
-    - Special schools, when the filter is enabled
-    - All recorded funding sources
-    - All municipalities with matching data
-
-    ### What is excluded?
-
-    - Universities and other higher education institutions
-    - Institutions not represented in the dataset
-    - Special schools, when the filter is disabled
-
-    ### How should the colors be interpreted?
-
-    **Total funding:** Uses a logarithmic color scale
-    to make differences between municipalities easier to see.
-
-    **Funding per student:** Uses a linear color scale.
-
-    Darker colors represent higher funding values.
-
-    ### Limitations
-
-    - Funding amounts are nominal euros and are not
-      adjusted for inflation.
-    - Funding per student is not the same as actual
-      expenditure per student.
-    - Schools with missing student counts can cause
-      funding-per-student values to be overstated.
-    - Differences between municipalities may reflect
-      student populations, school sizes, school types,
-      and special education needs.
-    - Excluding special schools does not eliminate
-      all differences between municipalities.
-
-    **Financial data source:** `finansavimas_mokykla_metai`
-
-    **Geographical data source:** Lithuanian municipality
-    boundaries (GeoJSON), matched by municipality code.
+    Source table: `finansavimas_mokykla_metai`.
     """)
