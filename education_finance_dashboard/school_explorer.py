@@ -6,6 +6,9 @@ import plotly.express as px
 import streamlit as st
 
 from municipality_funding import load_funding
+from year_filter import show_year_filter
+from school_history_chart import make_income_expense_chart
+from funding_trends import funding_source_history, stacked_funding_chart, show_source_details
 
 
 DATABASE_FILE = (
@@ -74,79 +77,45 @@ def load_school_income_history(school_code):
         ).df()
 
 
-def show_school_financial_history(school_code, school_funding):
-    annual_funding = (
-        school_funding.assign(suma=school_funding["suma"].astype("float64"))
-        .groupby("metai")["suma"]
-        .sum(min_count=1)
-        .rename("Funding income")
-    )
-    annual_expenses = (
-        load_school_expense_history(school_code)
-        .set_index("metai")["expenditure"]
-        .astype("float64")
-        .rename("Total expenses")
-    )
-    annual_income = (
-        load_school_income_history(school_code)
-        .set_index("metai")["income"]
-        .astype("float64")
-        .rename("Total income")
-    )
-    history = pd.concat(
-        [annual_income, annual_funding, annual_expenses], axis=1
-    ).sort_index()
-    history = (
-        history.reindex(range(int(history.index.min()), int(history.index.max()) + 1))
-        .rename_axis("Year")
-        .reset_index()
-    )
+def show_school_financial_history(school_code, school_funding, year):
+    annual_expenses = load_school_expense_history(school_code).set_index("metai")["expenditure"].astype(float)
+    annual_income = load_school_income_history(school_code).set_index("metai")["income"].astype(float)
 
-    st.subheader("Income and expenses over time")
+    st.subheader("Funding Income by Source Over Time")
     st.markdown("""
-A single year provides a snapshot. **How have the school's income and
-expenses changed over time, and has income kept pace with costs?**
+The selected-year figures show the school's financial scale. **Where has its
+funding income come from over time?** This chart focuses only on funding
+income, with a separate colour for each source in the annual stack.
 
-The chart compares total expenses with either total income or funding income.
-Total income includes funding and other reported income; funding income shows
-only the funding component. The selector changes the income line while keeping
-total expenses visible.
+All recorded funding sources are included. Small contributions remain to
+scale; hovering and the exact-amount table reveal their values.
     """)
-    income_measure = st.radio(
-        "Compare total expenses with",
-        ["Total income", "Funding income"],
-        horizontal=True,
-        key="school_history_income_measure",
-        persist_state="session",
+    sources = funding_source_history(school_funding)
+    st.plotly_chart(
+        stacked_funding_chart(sources, year), width="stretch",
+        key="school_funding_source_history", config={"displayModeBar": False},
     )
-    if income_measure == "Funding income":
-        st.caption(
-            "Funding income is only part of total income, so the gap between "
-            "these lines is not the school's surplus or deficit."
+    show_source_details(sources, "school_source_details")
+    st.caption("Source table: `finansavimas_mokykla_metai`.")
+
+    st.subheader("Total Income and Total Expenses Over Time")
+    st.markdown("""
+Funding income is one part of the school's income. **How does total income
+compare with total expenses?** The next chart brings together funding and
+other reported income in one blue bar, beside an orange bar for total expenses
+in the same year. This separates the overall financial comparison from the
+funding-source breakdown above.
+    """)
+    if annual_income.empty and annual_expenses.empty:
+        st.info("No historical income or expense figures are available for this school.")
+    else:
+        st.plotly_chart(
+            make_income_expense_chart(annual_income, annual_expenses, year),
+            width="stretch", key="school_income_expense_history", config={"displayModeBar": False},
         )
-    chart = px.line(
-        history,
-        x="Year",
-        y=[income_measure, "Total expenses"],
-        markers=True,
-        color_discrete_map={
-            "Total income": "#2563eb",
-            "Funding income": "#2563eb",
-            "Total expenses": "#f97316",
-        },
-        labels={"value": "Amount (€)", "variable": ""},
-    )
-    chart.update_traces(
-        connectgaps=False,
-        hovertemplate="€%{y:,.2f}<extra>%{fullData.name}</extra>",
-    )
-    chart.update_layout(height=380, hovermode="x unified")
-    chart.update_xaxes(dtick=1, tickformat="d")
-    chart.update_yaxes(tickprefix="€", tickformat="~s")
-    st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
     st.caption(
-        "All available calendar years for this school · Nominal euros · "
-        "Gaps indicate missing figures. Amounts are not adjusted for inflation."
+        "Missing figures are left blank. The shaded band marks the selected year. "
+        "Amounts are not adjusted for inflation. Source table: `mokyklu_veiklos_rezultatai`."
     )
 
 
@@ -348,7 +317,7 @@ The municipality comparison showed differences between schools. A closer look
 at one school raises the next question: **what does its funding support?**
 
 The figures below bring together the school's reported income and expenses.
-The trend shows how funding income and expenses have changed over time, while
+Separate historical charts show funding sources and compare total income with expenses, while
 the expense breakdown shows which costs account for the largest amounts.
 Together, they put the school's position in the earlier comparisons into context.
 """)
@@ -374,37 +343,24 @@ school_labels = {
 incoming = st.session_state.pop("school_explorer_context", None)
 if incoming and incoming["code"] in school_labels:
     st.session_state["school_explorer_school"] = incoming["code"]
-    st.session_state["school_explorer_year"] = incoming["year"]
 
-school_column, year_column = st.columns([3, 1], vertical_alignment="bottom")
-with school_column:
-    school_code = st.selectbox(
-        "Choose a school",
-        options=sorted(school_labels, key=lambda code: school_labels[code].casefold()),
-        format_func=school_labels.__getitem__,
-        index=None,
-        placeholder="Search by school name or municipality",
-        key="school_explorer_school",
-        persist_state="session",
-    )
+
+year = show_year_filter(funding, incoming.get("year") if incoming else None)
+
+school_code = st.selectbox(
+    "Choose a school",
+    options=sorted(school_labels, key=lambda code: school_labels[code].casefold()),
+    format_func=school_labels.__getitem__,
+    index=None,
+    placeholder="Search by school name or municipality",
+    key="school_explorer_school",
+    persist_state="session",
+)
 
 if school_code is None:
     st.stop()
 
 school_funding = funding[funding["mokyklos_kodas"] == school_code]
-years = sorted(school_funding["metai"].dropna().unique().tolist())
-if st.session_state.get("school_explorer_year") not in years:
-    st.session_state["school_explorer_year"] = years[-1]
-
-with year_column:
-    year = st.selectbox(
-        "Reporting year",
-        options=years,
-        index=None,
-        key="school_explorer_year",
-        persist_state="session",
-    )
-
 st.subheader("School income and expenses")
 st.markdown(f"""
 For **{year}**, how much income did the school report, and how much did it
@@ -416,7 +372,7 @@ in more detail.
 results = load_school_financial_results(school_code, int(year))
 if results.empty:
     st.info("No income or expense records were found for this school and year.")
-    show_school_financial_history(school_code, school_funding)
+    show_school_financial_history(school_code, school_funding, year)
     st.stop()
 
 income = results[results["saskaita_lygis_1"] == "Pajamos"]
@@ -445,6 +401,6 @@ st.caption(
     "Source tables `finansavimas_mokykla_metai` and `mokyklu_veiklos_rezultatai`"
 )
 
-show_school_financial_history(school_code, school_funding)
+show_school_financial_history(school_code, school_funding, year)
 
 show_school_expense_breakdown(expenses, school_code, year)

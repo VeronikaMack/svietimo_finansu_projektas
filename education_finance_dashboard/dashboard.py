@@ -5,6 +5,7 @@ from cloud_data import DataSetupError, ensure_local_data
 st.set_page_config(
     page_title="Lithuanian Education Finances",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 page = st.navigation(

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from special_school_comparison import show_special_school_explanation
+from special_school_filter import special_school_filter
 
 import json
 
@@ -15,7 +15,8 @@ from municipality_funding import (
     summarize_school_funding,
 )
 from school_funding_charts import show_school_funding_charts
-from school_type_funding import show_school_type_funding
+from year_filter import show_year_filter
+from school_type_funding import show_school_type_funding, SPECIAL_SCHOOL_HELP
 
 FUNDING_SOURCE_LABELS = {
     "Iš valstybės biudžeto": "State budget",
@@ -56,6 +57,9 @@ incoming = st.session_state.pop("municipality_explorer_context", None)
 if incoming and incoming["code"] in municipality_names:
     st.session_state["explorer_municipality"] = incoming["code"]
 
+funding = load_funding()
+year = show_year_filter(funding, incoming.get("year") if incoming else None)
+
 municipality_code = st.selectbox(
     "Choose a municipality",
     options=municipality_codes,
@@ -68,36 +72,11 @@ municipality_code = st.selectbox(
 if municipality_code is not None:
     st.header(municipality_names[municipality_code])
 
-    funding = load_funding()
-    years = sorted(funding["metai"].dropna().unique().tolist())
-    latest_year = years[-1] if years else None
     if incoming:
-        incoming_year = incoming["year"]
-        st.session_state["explorer_year"] = (
-            incoming_year if incoming_year in years else latest_year
-        )
         st.session_state["explorer_include_special"] = incoming["include_special"]
     else:
-        st.session_state.setdefault("explorer_year", latest_year)
         st.session_state.setdefault("explorer_include_special", True)
-
-    year_column, schools_column = st.columns(2, vertical_alignment="bottom")
-    with year_column:
-        year = st.selectbox(
-            "Reporting year",
-            options=years,
-            index=None,
-            key="explorer_year",
-            persist_state="session",
-        )
-    with schools_column:
-        include_special = st.toggle(
-            "Include special schools",
-            key="explorer_include_special",
-            persist_state="session",
-        )
-
-    show_special_school_explanation(funding, year)
+    include_special = special_school_filter(funding, year, "explorer_include_special")
 
     selected_funding = funding[
         (funding["metai"] == year)
@@ -119,7 +98,7 @@ if municipality_code is not None:
         st.markdown(f"""
 For **{municipality_names[municipality_code]}** in **{year}**, the figures below
 establish the scale of recorded school funding and the schools and students
-represented. The year and special-school settings above update the comparisons
+represented. The sidebar year and special-school setting above update the comparisons
 that follow.
         """)
 
@@ -146,8 +125,8 @@ that follow.
 The schools shown report **€{totals['total_funding']:,.0f}** in funding income.
 **Where does this funding come from?**
 
-The bars break that total down by source, with percentage labels showing each
-source's share. This shows the relative contribution of state, municipal and
+The bars break that total down by source, with a switch between euro amounts and
+percentage shares. This shows the relative contribution of state, municipal and
 other funding to schools in this municipality, adding local detail to the
 national funding-source picture.
         """)
@@ -171,28 +150,41 @@ national funding-source picture.
             else "—"
         )
 
+        source_display = st.radio(
+            "Show funding sources as", ["Euro amounts", "Percentages"],
+            horizontal=True, key="municipality_source_display", persist_state="session",
+        )
+        show_percent = source_display == "Percentages" and total_funding > 0
+        sources["share_value"] = sources["suma"] / total_funding if total_funding > 0 else 0
+        sources["display_label"] = sources["share"] if show_percent else sources["suma"].map(lambda value: f"€{value:,.2f}")
         chart = px.bar(
             sources,
-            x="suma",
+            x="share_value" if show_percent else "suma",
             y="source",
             orientation="h",
-            text="share",
-            custom_data=["share"],
+            text="display_label",
+            custom_data=["share", "suma"],
             labels={"suma": "Recorded funding (€)", "source": "Funding source"},
         )
         chart.update_traces(
             textposition="outside",
             cliponaxis=False,
             hovertemplate=(
-                "%{y}<br>Funding: €%{x:,.0f}<br>"
+                "%{y}<br>Funding: €%{customdata[1]:,.2f}<br>"
                 "Share of total: %{customdata[0]}<extra></extra>"
             ),
         )
         chart.update_layout(
             height=max(270, 80 + 48 * len(sources)),
-            margin=dict(l=8, r=48, t=8, b=40),
+            margin=dict(l=8, r=120, t=8, b=40),
             xaxis_tickprefix="€",
             yaxis_title=None,
+        )
+        chart.update_xaxes(
+            title="Share of funding" if show_percent else "Recorded funding (€)",
+            tickprefix="" if show_percent else "€",
+            tickformat=".0%" if show_percent else ",.0f",
+            range=[0, 1.15] if show_percent else None,
         )
         chart.update_yaxes(
             categoryorder="array",

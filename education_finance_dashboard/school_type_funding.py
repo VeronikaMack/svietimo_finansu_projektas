@@ -6,6 +6,7 @@ import plotly.express as px
 import streamlit as st
 
 from municipality_funding import municipality_funding_records, school_funding_totals
+from special_school_filter import special_school_filter, SPECIAL_SCHOOL_HELP
 
 TYPE_LABELS = {
     "Gimnazija": "Gymnasium",
@@ -14,6 +15,7 @@ TYPE_LABELS = {
     "Pradinė mokykla": "Primary school",
 }
 METRICS = ["Average funding per school", "Funding per student"]
+
 
 
 def prepare_type_schools(funding, year, include_special):
@@ -54,6 +56,7 @@ def show_school_type_funding(
         metric = st.radio(
             "School-type funding metric", METRICS, horizontal=True,
             key=f"{key}_metric", persist_state="session",
+            format_func=lambda value: "Average funding per student" if value == "Funding per student" else value,
         )
     if special_scope_key is not None:
         toggle_key = f"{key}_include_special"
@@ -63,11 +66,8 @@ def show_school_type_funding(
             st.session_state[special_scope_key] = st.session_state[toggle_key]
 
         with special_column:
-            include_special = st.toggle(
-                "Include special schools", key=toggle_key,
-                on_change=sync_special_school_scope,
-                help="Linked to the special-school setting at the top of this page.",
-                persist_state="session",
+            include_special = special_school_filter(
+                funding, year, toggle_key, on_change=sync_special_school_scope
             )
     national_schools = prepare_type_schools(funding, year, include_special)
     schools = national_schools if municipality_code is None else national_schools.loc[

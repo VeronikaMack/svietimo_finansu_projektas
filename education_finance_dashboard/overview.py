@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from special_school_comparison import show_special_school_explanation
+from special_school_filter import special_school_filter
 
 import streamlit as st
 import plotly.express as px
@@ -8,7 +8,9 @@ import json
 import numpy as np
 
 from education_spending import show_education_spending
-from school_type_funding import show_school_type_funding
+from year_filter import show_year_filter
+from school_type_funding import show_school_type_funding, SPECIAL_SCHOOL_HELP
+from funding_trends import show_overview_trends, SOURCE_LABELS
 from municipality_funding import (
     load_funding,
     municipality_funding_records,
@@ -20,6 +22,10 @@ from municipality_funding import (
 # --------------------------------------------------
 
 funding = load_funding()
+
+year = show_year_filter(funding)
+selected_funding = funding[funding["metai"] == year]
+
 
 # --------------------------------------------------
 # HEADER AND INTRODUCTION
@@ -44,9 +50,8 @@ Education expenditure for 2024 and recorded school funding for 2015-2024.
 """)
 
 show_education_spending()
-st.divider()
 
-st.header("From the education budget to school funding")
+st.markdown("# From the education budget to school funding")
 
 st.markdown("""
 The expenditure breakdown shows the range of activities supported by the
@@ -62,7 +67,7 @@ reported funding income rather than a breakdown of spending, so the totals are
 not directly comparable with the expenditure breakdown above.
 """)
 
-with st.expander("School groups and comparison notes"):
+with st.expander("What is the difference between regular and special schools?"):
     st.markdown("""
     **Regular and special schools**
 
@@ -84,127 +89,7 @@ with st.expander("School groups and comparison notes"):
     Source table: `finansavimas_mokykla_metai`.
     """)
 
-st.divider()
-
-# --------------------------------------------------
-# FUNDING OVER TIME
-# --------------------------------------------------
-
-st.header("School Funding Over Time")
-
-st.markdown("""
-The expenditure breakdown provides a snapshot of 2024. For schools,
-a longer view helps put that snapshot in context: **how has recorded school
-funding changed over time?**
-
-The line below shows total reported funding income for general education
-schools in each year from **2015 to 2024**. Each point combines all recorded
-funding sources for that year, showing the scale and pace of change.
-
-These are the euro amounts reported in each year, without adjustment for
-rising prices. A higher total therefore does not necessarily mean that schools
-could afford proportionately more staff, equipment or services.
-""")
-
-funding_by_year = (
-    funding.assign(suma=funding["suma"].astype("float64"))
-    .groupby("metai", as_index=False)["suma"]
-    .sum()
-    .sort_values("metai")
-)
-
-fig_trend = px.line(
-    funding_by_year,
-    x="metai",
-    y="suma",
-    markers=True,
-    labels={
-        "metai": "Year",
-        "suma": "Total Funding (€)",
-    },
-)
-
-fig_trend.update_traces(
-    line=dict(width=3),
-    marker=dict(size=8),
-    hovertemplate=("Year: %{x}<br>" "Total funding: €%{y:,.0f}" "<extra></extra>"),
-)
-
-fig_trend.update_layout(
-    height=450,
-    margin=dict(l=20, r=20, t=20, b=20),
-    xaxis=dict(
-        tickmode="linear",
-        dtick=1,
-    ),
-    yaxis=dict(
-        tickprefix="€",
-        tickformat=".1f",
-        tickvals=[0, 500e6, 1e9, 1.5e9, 2e9],
-        ticktext=["€0", "€500M", "€1B", "€1.5B", "€2B"],
-    ),
-)
-
-st.plotly_chart(fig_trend, use_container_width=True)
-
-st.caption(
-    "Source: `finansavimas_mokykla_metai` | "
-    f"Period: {int(funding_by_year['metai'].min())}"
-    f"-{int(funding_by_year['metai'].max())} | "
-    "Measure: Annual SUM(suma)"
-)
-
-with st.expander("How to interpret this chart"):
-    st.markdown("""
-    **What does it show?**
-
-    The total annual funding recorded for Lithuanian schools.
-
-    Each point represents the sum of all recorded funding
-    sources for that calendar year.
-
-    **Included:**
-    - Regular and special schools represented in the dataset
-    - All recorded funding sources
-    - All municipalities represented in the dataset
-
-    **Excluded:**
-    - Universities and other higher education institutions
-    - Institutions outside the dataset
-
-    **Calculation:**
-
-    Funding amounts (`suma`) are grouped by calendar year
-    (`metai`) and summed.
-
-    **Limitations:**
-
-    - Values are in nominal euros, without inflation adjustment.
-    - Changes in the number of schools covered can influence
-      the total funding trend.
-    - An increase in total funding does not necessarily mean
-      an increase in funding per school or per student.
-
-    **Source table:** `finansavimas_mokykla_metai`
-    """)
-
-st.divider()
-
-# --------------------------------------------------
-# YEAR FILTER
-# --------------------------------------------------
-
-years = sorted(funding["metai"].dropna().unique().tolist())
-
-year = st.selectbox(
-    "Select reporting year",
-    options=years,
-    index=len(years) - 1,
-    key="overview_year",
-    persist_state="session",
-)
-
-selected_funding = funding[funding["metai"] == year]
+show_overview_trends(funding, year)
 
 # --------------------------------------------------
 # OVERVIEW METRICS
@@ -213,9 +98,9 @@ selected_funding = funding[funding["metai"] == year]
 st.header("School Funding Overview")
 
 st.markdown(f"""
-The trend shows how the overall total has changed. A closer look at **{year}**
+The historical charts show how overall and per-student funding have changed. A closer look at **{year}**
 now shows the funding recorded that year and the number of schools and
-municipalities represented. The reporting year selector above updates this
+municipalities represented. The reporting year selector in the sidebar updates this
 overview and the single-year comparisons that follow.
 """)
 
@@ -245,8 +130,6 @@ st.caption(
     "Scope: Schools included in the dataset, including special schools"
 )
 
-st.divider()
-
 # --------------------------------------------------
 # FUNDING BY SOURCE
 # --------------------------------------------------
@@ -269,15 +152,16 @@ funding_sources = (
     .sort_values("suma", ascending=False, kind="stable")
 )
 
+funding_sources["source_label"] = funding_sources["finansavimo_saltinis"].replace(SOURCE_LABELS)
 fig = px.bar(
     funding_sources,
     x="suma",
-    y="finansavimo_saltinis",
+    y="source_label",
     orientation="h",
     text=[f"€{amount:,.0f}" for amount in funding_sources["suma"]],
     labels={
         "suma": "Recorded funding (€)",
-        "finansavimo_saltinis": "Funding source",
+        "source_label": "Funding source",
     },
     color_discrete_sequence=["#2563eb"],
 )
@@ -295,7 +179,7 @@ fig.update_layout(
 fig.update_xaxes(tickprefix="€", tickformat="", exponentformat="B")
 fig.update_yaxes(
     categoryorder="array",
-    categoryarray=funding_sources["finansavimo_saltinis"].tolist(),
+    categoryarray=funding_sources["source_label"].tolist(),
     autorange="reversed",
     automargin=True,
     title=None,
@@ -351,10 +235,7 @@ type. The national benchmark shows the overall figure across all school types,
 placing each group's amount above or below the national average. Differences
 can reflect school sizes, educational stages and support needs.
 """)
-type_include_special = st.toggle(
-    "Include special schools", value=True,
-    key="overview_type_include_special", persist_state="session",
-)
+type_include_special = special_school_filter(funding, year, "overview_type_include_special")
 show_school_type_funding(
     funding, year, type_include_special, key="overview_school_types"
 )
@@ -386,15 +267,7 @@ metric = st.radio(
     key="overview_map_metric",
     persist_state="session",
 )
-include_special = st.toggle(
-    "Include special schools",
-    value=True,
-    help="Exclude schools flagged as special to compare the remaining schools. "
-    "See the comparison below for funding per student.",
-    key="overview_include_special",
-    persist_state="session",
-)
-show_special_school_explanation(funding, year)
+include_special = special_school_filter(funding, year, "overview_include_special")
 # --------------------------------------------------
 # LOAD MUNICIPALITY BOUNDARIES
 # --------------------------------------------------
@@ -510,26 +383,15 @@ fig_map.update_layout(
 )
 
 st.caption(
-    "Clicking a municipality on the map opens its detailed overview. "
-    "The dropdown below provides another way to select a municipality and open its overview."
+    "Clicking a municipality opens its detailed overview. Municipalities can also be explored in the Municipality Explorer tab."
 )
 st.plotly_chart(
     fig_map,
-    use_container_width=True,
+    width="stretch",
     key="overview_funding_map",
     on_select=capture_map_selection,
     selection_mode="points",
 )
-
-municipality_code = st.selectbox(
-    "Choose a municipality",
-    options=sorted(municipality_names, key=municipality_names.get),
-    format_func=municipality_names.__getitem__,
-    index=None,
-    key="overview_municipality",
-)
-if st.button("Open Explorer", disabled=municipality_code is None):
-    open_municipality(municipality_code)
 
 # --------------------------------------------------
 # SOURCE INFORMATION
