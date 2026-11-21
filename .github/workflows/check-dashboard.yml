@@ -24,7 +24,7 @@ jobs:
 
       - name: Open dashboard and check it loads
         env:
-          APP_URL: https://YOUR-APP.streamlit.app
+          APP_URL: https://svietimofinansuprojektas-fusq6ekjjdczfkngaoqmnt.streamlit.app
         run: |
           python - <<'PY'
           import os
