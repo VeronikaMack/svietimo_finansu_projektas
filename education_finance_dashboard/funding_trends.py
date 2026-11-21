@@ -8,7 +8,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from special_school_filter import special_school_filter
 
-from school_type_funding import prepare_type_schools, summarize_types, TYPE_LABELS, SPECIAL_SCHOOL_HELP
+from school_type_funding import prepare_type_schools, summarize_types, TYPE_LABELS
 
 SOURCE_LABELS = {
     "Iš valstybės biudžeto": "State budget",

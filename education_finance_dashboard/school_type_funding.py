@@ -6,7 +6,7 @@ import plotly.express as px
 import streamlit as st
 
 from municipality_funding import municipality_funding_records, school_funding_totals
-from special_school_filter import special_school_filter, SPECIAL_SCHOOL_HELP
+from special_school_filter import special_school_filter
 
 TYPE_LABELS = {
     "Gimnazija": "Gymnasium",

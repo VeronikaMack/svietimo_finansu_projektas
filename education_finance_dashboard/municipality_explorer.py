@@ -16,7 +16,7 @@ from municipality_funding import (
 )
 from school_funding_charts import show_school_funding_charts
 from year_filter import show_year_filter
-from school_type_funding import show_school_type_funding, SPECIAL_SCHOOL_HELP
+from school_type_funding import show_school_type_funding
 
 FUNDING_SOURCE_LABELS = {
     "Iš valstybės biudžeto": "State budget",

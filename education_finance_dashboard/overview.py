@@ -9,7 +9,7 @@ import numpy as np
 
 from education_spending import show_education_spending
 from year_filter import show_year_filter
-from school_type_funding import show_school_type_funding, SPECIAL_SCHOOL_HELP
+from school_type_funding import show_school_type_funding
 from funding_trends import show_overview_trends, SOURCE_LABELS
 from municipality_funding import (
     load_funding,
