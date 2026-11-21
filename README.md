@@ -6,6 +6,12 @@ through an interactive Streamlit dashboard and three Jupyter notebooks.
 The analysis covers national expenditure, municipality-level funding,
 and individual school income and expenditure.
 
+## Live dashboard
+
+[Open the Lithuanian Education Finances dashboard](https://svietimofinansuprojektas-fusq6ekjjdczfkngaoqmnt.streamlit.app)
+
+The dashboard is hosted on Streamlit Community Cloud. If it is asleep, use the wake-up button and allow a moment for it to load.
+
 ## Dashboard
 
 The `education_finance_dashboard/` folder contains the Streamlit application.
